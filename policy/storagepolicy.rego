@@ -48,7 +48,7 @@ deny[msg] {
     resource := input.planned_values.root_module.resources[_]
     
     # Check if uniform_bucket_level_access is not defined (should default to true)
-    not "uniform_bucket_level_access" in object.keys(resource.values)
+    not resource.values.uniform_bucket_level_access
     
     bucket_name := resource.values.name
     msg := sprintf("Policy violation: GCS bucket '%s' does not have uniform_bucket_level_access explicitly set. Please set it to true for security compliance.", [bucket_name])
@@ -61,7 +61,7 @@ deny[msg] {
     change.change.actions[_] == "create"
     
     # Check if uniform_bucket_level_access is not defined
-    not "uniform_bucket_level_access" in object.keys(change.change.after)
+    not change.change.after.uniform_bucket_level_access
     
     bucket_name := change.change.after.name
     msg := sprintf("Policy violation: GCS bucket '%s' does not have uniform_bucket_level_access explicitly set. Please set it to true for security compliance.", [bucket_name])
@@ -73,13 +73,15 @@ compliant {
 }
 
 # Rule to provide policy summary
-policy_summary := {
-    "total_violations": count(deny),
-    "compliant": compliant,
-    "violations": deny,
-    "debug_info": {
-        "planned_resources": debug_resources,
-        "resource_changes": debug_resource_changes,
-        "input_keys": object.keys(input)
+policy_summary = result {
+    violations := deny
+    result := {
+        "total_violations": count(violations),
+        "compliant": count(violations) == 0,
+        "violations": violations,
+        "debug_info": {
+            "planned_resources": debug_resources,
+            "resource_changes": debug_resource_changes
+        }
     }
 }

@@ -4,12 +4,13 @@
 *.tfvars
 !terraform.tfvars.example
 .terraform/
-.terraform.lock.hcl
 tfplan
 tfplan.json
 
 # OPA
 opa_result.json
+opa.exe
+opa_*.exe
 
 # IDE
 .vscode/
