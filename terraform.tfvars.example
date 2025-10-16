@@ -1,0 +1,7 @@
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and update with your actual values
+
+project_id   = "your-actual-gcp-project-id"
+region       = "us-central1"
+bucket_name  = "your-unique-bucket-name"
+environment  = "development"
