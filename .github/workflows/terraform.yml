@@ -82,58 +82,19 @@ jobs:
       run: |
         echo "Running OPA policy validation..."
         
-        # Debug: Check if files exist
-        echo "=== Checking required files ==="
-        ls -la tfplan.json policy/
-        
-        # Debug: Show structure of Terraform plan JSON (first few lines)
-        echo "=== Terraform Plan JSON Structure ==="
-        head -50 tfplan.json | jq '.' || echo "JSON parsing failed, showing raw content:"
-        head -20 tfplan.json
-        
-        # Debug: Test OPA policy syntax
-        echo "=== Testing OPA Policy Syntax ==="
-        opa fmt policy/storagepolicy.rego --diff || echo "Policy formatting issues found"
-        
-        # Run OPA evaluation with more verbose output
-        echo "=== Running OPA Evaluation ==="
-        opa eval -d policy/ -i tfplan.json "data.terraform.gcs" --format pretty
-        
-        # Try the original query and capture output
-        echo "=== Running Policy Summary Query ==="
+        # Run OPA evaluation and capture output
         opa eval -d policy/ -i tfplan.json "data.terraform.gcs.policy_summary" > opa_result.json 2>&1
         
-        echo "=== OPA Result File Content ==="
-        cat opa_result.json
+        echo "=== OPA Policy Results ==="
+        cat opa_result.json | jq '.'
         
-        # Check if the result file has content
-        if [ ! -s opa_result.json ]; then
-          echo "❌ OPA evaluation produced no output. Checking for violations directly..."
-          
-          # Try direct violation check
-          opa eval -d policy/ -i tfplan.json "data.terraform.gcs.deny" --format pretty > direct_violations.json
-          echo "=== Direct Violations Check ==="
-          cat direct_violations.json
-          
-          # If no structured result, assume violations for safety
-          echo "❌ Unable to determine policy compliance. Failing for safety."
-          exit 1
-        fi
-        
-        # Check if there are violations
-        VIOLATIONS=$(cat opa_result.json | jq -r '.result.total_violations // empty')
-        
-        if [ -z "$VIOLATIONS" ]; then
-          echo "❌ Could not parse violations count from OPA result"
-          echo "Raw OPA output:"
-          cat opa_result.json
-          exit 1
-        fi
+        # Check if there are violations using the correct JSON path
+        VIOLATIONS=$(cat opa_result.json | jq -r '.result[0].expressions[0].value.total_violations // 0')
         
         if [ "$VIOLATIONS" -gt 0 ]; then
           echo "❌ Policy violations found: $VIOLATIONS"
           echo "=== Violation Details ==="
-          cat opa_result.json | jq -r '.result.violations[]? // empty'
+          cat opa_result.json | jq -r '.result[0].expressions[0].value.violations[]? // empty'
           exit 1
         else
           echo "✅ No policy violations found. Plan is compliant!"
