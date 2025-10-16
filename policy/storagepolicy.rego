@@ -1,28 +1,22 @@
 package terraform.gcs
 
-import rego.v1
-
 # Policy to enforce uniform bucket level access on GCS buckets
 # This policy will deny any bucket that has uniform_bucket_level_access set to false
 
 # Debug rule to show what we're looking at
-debug_resources := resources if {
-    resources := [resource |
-        resource := input.planned_values.root_module.resources[_]
-        resource.type == "google_storage_bucket"
-    ]
+debug_resources[resource] {
+    resource := input.planned_values.root_module.resources[_]
+    resource.type == "google_storage_bucket"
 }
 
-# Alternative path check for resource changes
-debug_resource_changes := resources if {
-    resources := [resource |
-        resource := input.resource_changes[_]
-        resource.type == "google_storage_bucket"
-    ]
+# Alternative path check for resource changes  
+debug_resource_changes[resource] {
+    resource := input.resource_changes[_]
+    resource.type == "google_storage_bucket"
 }
 
 # Main rule that checks for policy violations in planned_values
-deny contains msg if {
+deny[msg] {
     # Check all planned changes in the Terraform plan
     input.planned_values.root_module.resources[_].type == "google_storage_bucket"
     resource := input.planned_values.root_module.resources[_]
@@ -35,7 +29,7 @@ deny contains msg if {
 }
 
 # Alternative rule for resource_changes path
-deny contains msg if {
+deny[msg] {
     # Check resource changes (alternative path in Terraform JSON)
     input.resource_changes[_].type == "google_storage_bucket"
     change := input.resource_changes[_]
@@ -49,7 +43,7 @@ deny contains msg if {
 }
 
 # Additional rule to check for missing uniform_bucket_level_access setting in planned_values
-deny contains msg if {
+deny[msg] {
     input.planned_values.root_module.resources[_].type == "google_storage_bucket"
     resource := input.planned_values.root_module.resources[_]
     
@@ -61,7 +55,7 @@ deny contains msg if {
 }
 
 # Additional rule for resource_changes path
-deny contains msg if {
+deny[msg] {
     input.resource_changes[_].type == "google_storage_bucket"
     change := input.resource_changes[_]
     change.change.actions[_] == "create"
@@ -74,7 +68,7 @@ deny contains msg if {
 }
 
 # Helper rule to check if the plan is compliant
-compliant if {
+compliant {
     count(deny) == 0
 }
 
