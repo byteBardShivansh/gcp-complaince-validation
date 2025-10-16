@@ -14,15 +14,15 @@ provider "google" {
   region  = var.region
 }
 
-# Create a Google Cloud Storage bucket with uniform_bucket_level_access set to true
-# This should pass the OPA policy validation
+# Create a Google Cloud Storage bucket with uniform_bucket_level_access set to false
+# This will trigger the OPA policy violation and block deployment
 resource "google_storage_bucket" "example_bucket" {
   name          = var.bucket_name
   location      = var.region
   force_destroy = true
 
-  # This setting will be checked by the OPA policy - now compliant
-  uniform_bucket_level_access = true
+  # This setting will be checked by the OPA policy - intentionally non-compliant
+  uniform_bucket_level_access = false
 
   versioning {
     enabled = true
