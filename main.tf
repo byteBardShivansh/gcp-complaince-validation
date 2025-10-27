@@ -21,8 +21,8 @@ resource "google_storage_bucket" "example_bucket" {
   location      = var.region
   force_destroy = true
 
-  # This setting will be checked by the OPA policy - intentionally non-compliant
-  uniform_bucket_level_access = false
+  # This setting will be checked by the OPA policy - now compliant
+  uniform_bucket_level_access = true
 
   versioning {
     enabled = true
