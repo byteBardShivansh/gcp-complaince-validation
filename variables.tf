@@ -46,7 +46,7 @@ variable "zone" {
 variable "boot_disk_image" {
   description = "The boot disk image for the compute instance"
   type        = string
-  default     = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts" # Free and lightweight
+  default     = "debian-cloud/debian-11" # Free and lightweight
 }
 
 variable "boot_disk_size" {

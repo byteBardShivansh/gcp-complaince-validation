@@ -46,7 +46,7 @@ environment = "development"
 instance_name = "simple-cost-vm"
 machine_type = "e2-micro"
 zone = "us-central1-a"
-boot_disk_image = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts"
+boot_disk_image = "debian-cloud/debian-11"
 boot_disk_size = 10
 "@
 

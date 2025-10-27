@@ -11,5 +11,5 @@ environment  = "development"
 instance_name     = "cost-optimized-vm"
 machine_type      = "e2-micro"        # Smallest machine type - eligible for Always Free tier
 zone              = "us-central1-a"   # Choose zone with lower costs
-boot_disk_image   = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts"
+boot_disk_image   = "debian-cloud/debian-11"
 boot_disk_size    = 10                # Minimum disk size in GB

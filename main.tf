@@ -92,9 +92,9 @@ resource "google_compute_instance" "cost_optimized_vm" {
   tags = ["cost-optimized", "preemptible"]
 
   labels = {
-    environment = var.environment
-    managed_by  = "terraform"
-    cost_tier   = "minimal"
+    environment   = var.environment
+    managed_by    = "terraform"
+    cost_tier     = "minimal"
     instance_type = "preemptible"
   }
 }
@@ -129,9 +129,9 @@ output "instance_zone" {
 output "cost_optimization_features" {
   description = "Cost optimization features enabled"
   value = {
-    preemptible = google_compute_instance.cost_optimized_vm.scheduling[0].preemptible
+    preemptible  = google_compute_instance.cost_optimized_vm.scheduling[0].preemptible
     machine_type = google_compute_instance.cost_optimized_vm.machine_type
-    disk_type = google_compute_instance.cost_optimized_vm.boot_disk[0].initialize_params[0].type
-    disk_size = "${google_compute_instance.cost_optimized_vm.boot_disk[0].initialize_params[0].size}GB"
+    disk_type    = google_compute_instance.cost_optimized_vm.boot_disk[0].initialize_params[0].type
+    disk_size    = "${google_compute_instance.cost_optimized_vm.boot_disk[0].initialize_params[0].size}GB"
   }
 }
