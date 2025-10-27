@@ -1,4 +1,4 @@
-name: Terraform GCP Compliance Validation
+name: 'GCP Cost-Optimized Infrastructure Deployment'
 
 on:
   push:
@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
 
 env:
   TF_VERSION: "1.5.0"
@@ -58,12 +68,22 @@ jobs:
     - name: Terraform Validate
       run: terraform validate
     
-    - name: Terraform Plan
+    - name: Create terraform.tfvars from secrets
       run: |
-        terraform plan \
-          -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-          -var="bucket_name=${{ secrets.GCP_PROJECT_ID }}-compliance-bucket-${{ github.run_number }}" \
-          -out=tfplan
+        cat > terraform.tfvars << EOF
+        project_id = "${{ secrets.GCP_PROJECT_ID }}"
+        region = "us-central1"
+        bucket_name = "${{ secrets.GCP_PROJECT_ID }}-compliance-bucket-${{ github.run_number }}"
+        environment = "production"
+        instance_name = "cost-optimized-vm-prod"
+        machine_type = "e2-micro"
+        zone = "us-central1-a"
+        boot_disk_image = "ubuntu-os-cloud/ubuntu-2004-lts"
+        boot_disk_size = 10
+        EOF
+
+    - name: Terraform Plan
+      run: terraform plan -out=tfplan
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
     
@@ -78,27 +98,88 @@ jobs:
         cat tfplan.json | jq '.'
       continue-on-error: true
     
-    - name: Run OPA Policy Validation
+    - name: OPA Policy Validation - Storage
+      id: storage-policy
       run: |
-        echo "Running OPA policy validation..."
+        echo "Running storage policy validation..."
+        opa eval -d policy/storagepolicy.rego -i tfplan.json "data.terraform.gcs.policy_summary" > storage_policy_result.json 2>&1
         
-        # Run OPA evaluation and capture output
-        opa eval -d policy/ -i tfplan.json "data.terraform.gcs.policy_summary" > opa_result.json 2>&1
+        echo "=== Storage Policy Results ==="
+        cat storage_policy_result.json | jq '.'
         
-        echo "=== OPA Policy Results ==="
-        cat opa_result.json | jq '.'
+        # Check compliance
+        VIOLATIONS=$(cat storage_policy_result.json | jq -r '.result[0].expressions[0].value.total_violations // 0')
+        COMPLIANT=$(cat storage_policy_result.json | jq -r '.result[0].expressions[0].value.compliant // false')
         
-        # Check if there are violations using the correct JSON path
-        VIOLATIONS=$(cat opa_result.json | jq -r '.result[0].expressions[0].value.total_violations // 0')
+        echo "Storage Policy - Violations: $VIOLATIONS, Compliant: $COMPLIANT"
+        echo "storage_compliant=$COMPLIANT" >> $GITHUB_OUTPUT
         
         if [ "$VIOLATIONS" -gt 0 ]; then
-          echo "❌ Policy violations found: $VIOLATIONS"
-          echo "=== Violation Details ==="
-          cat opa_result.json | jq -r '.result[0].expressions[0].value.violations[]? // empty'
-          exit 1
+          echo "❌ Storage policy violations found!"
+          cat storage_policy_result.json | jq -r '.result[0].expressions[0].value.violations[]? // empty'
         else
-          echo "✅ No policy violations found. Plan is compliant!"
+          echo "✅ Storage policy validation passed!"
         fi
+
+    - name: OPA Policy Validation - Compute
+      id: compute-policy
+      run: |
+        echo "Running compute policy validation..."
+        opa eval -d policy/computepolicy.rego -i tfplan.json "data.terraform.compute.policy_summary" > compute_policy_result.json 2>&1
+        
+        echo "=== Compute Policy Results ==="
+        cat compute_policy_result.json | jq '.'
+        
+        # Check compliance
+        VIOLATIONS=$(cat compute_policy_result.json | jq -r '.result[0].expressions[0].value.total_violations // 0')
+        WARNINGS=$(cat compute_policy_result.json | jq -r '.result[0].expressions[0].value.total_warnings // 0')
+        COMPLIANT=$(cat compute_policy_result.json | jq -r '.result[0].expressions[0].value.compliant // false')
+        
+        echo "Compute Policy - Violations: $VIOLATIONS, Warnings: $WARNINGS, Compliant: $COMPLIANT"
+        echo "compute_compliant=$COMPLIANT" >> $GITHUB_OUTPUT
+        
+        if [ "$VIOLATIONS" -gt 0 ]; then
+          echo "❌ Compute policy violations found!"
+          cat compute_policy_result.json | jq -r '.result[0].expressions[0].value.violations[]? // empty'
+        else
+          echo "✅ Compute policy validation passed!"
+          if [ "$WARNINGS" -gt 0 ]; then
+            echo "⚠️ Warnings detected:"
+            cat compute_policy_result.json | jq -r '.result[0].expressions[0].value.warnings[]? // empty'
+          fi
+        fi
+
+    - name: Overall Compliance Check
+      id: policy-check
+      run: |
+        STORAGE_COMPLIANT="${{ steps.storage-policy.outputs.storage_compliant }}"
+        COMPUTE_COMPLIANT="${{ steps.compute-policy.outputs.compute_compliant }}"
+        
+        echo "Storage Compliant: $STORAGE_COMPLIANT"
+        echo "Compute Compliant: $COMPUTE_COMPLIANT"
+        
+        if [ "$STORAGE_COMPLIANT" == "true" ] && [ "$COMPUTE_COMPLIANT" == "true" ]; then
+          echo "✅ All policies passed! Infrastructure is compliant."
+          echo "compliant=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Policy violations detected! Deployment blocked."
+          echo "compliant=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Calculate Cost Estimate
+      run: |
+        echo "💰 Cost Estimation for Deployment:"
+        echo "=================================="
+        echo "• Preemptible e2-micro instance: ~$3.50/month"
+        echo "• Boot disk (10GB standard): ~$0.40/month"
+        echo "• Cloud Storage bucket: ~$0.02/month (for minimal usage)"
+        echo "• Total estimated cost: ~$3.92/month"
+        echo ""
+        echo "Note: Actual costs will be lower due to:"
+        echo "- Preemptible instance interruptions"
+        echo "- Always Free tier usage (if eligible)"
+        echo "- Actual usage patterns"
     
     - name: Comment PR with Policy Results
       if: github.event_name == 'pull_request'
@@ -108,27 +189,74 @@ jobs:
           const fs = require('fs');
           
           try {
-            const opaResult = JSON.parse(fs.readFileSync('opa_result.json', 'utf8'));
-            const violations = opaResult.result.total_violations;
-            const compliant = opaResult.result.compliant;
+            let comment = `## 🏗️ Cost-Optimized Infrastructure Deployment Results\n\n`;
             
-            let comment = '## 🛡️ Terraform Compliance Check Results\n\n';
+            // Format check
+            comment += `**Terraform Format:** ✅\n`;
+            comment += `**Terraform Validation:** ✅\n\n`;
             
-            if (compliant) {
-              comment += '✅ **All policy checks passed!**\n\n';
-              comment += `- Total violations: ${violations}\n`;
-              comment += '- Status: Compliant ✅\n';
-            } else {
-              comment += '❌ **Policy violations detected!**\n\n';
-              comment += `- Total violations: ${violations}\n`;
-              comment += '- Status: Non-compliant ❌\n\n';
-              comment += '### Violations:\n';
-              opaResult.result.violations.forEach(violation => {
-                comment += `- ${violation}\n`;
-              });
+            // Storage Policy
+            try {
+              const storageResult = JSON.parse(fs.readFileSync('storage_policy_result.json', 'utf8'));
+              const storageData = storageResult.result[0].expressions[0].value;
+              
+              comment += `### 🪣 Storage Policy Validation\n`;
+              if (storageData.compliant) {
+                comment += `✅ **Compliant** - No violations detected\n`;
+              } else {
+                comment += `❌ **Non-Compliant** - ${storageData.total_violations} violation(s)\n`;
+                if (storageData.violations) {
+                  storageData.violations.forEach(violation => {
+                    comment += `- ${violation}\n`;
+                  });
+                }
+              }
+            } catch (e) {
+              comment += `### 🪣 Storage Policy Validation\n❓ Unable to parse results\n`;
             }
             
-            comment += '\n---\n*This comment was automatically generated by the Terraform compliance workflow.*';
+            // Compute Policy
+            try {
+              const computeResult = JSON.parse(fs.readFileSync('compute_policy_result.json', 'utf8'));
+              const computeData = computeResult.result[0].expressions[0].value;
+              
+              comment += `\n### 🖥️ Compute Policy Validation\n`;
+              if (computeData.compliant) {
+                comment += `✅ **Compliant** - No violations detected\n`;
+                if (computeData.total_warnings > 0) {
+                  comment += `⚠️ **Warnings:** ${computeData.total_warnings}\n`;
+                  if (computeData.warnings) {
+                    computeData.warnings.forEach(warning => {
+                      comment += `- ${warning}\n`;
+                    });
+                  }
+                }
+              } else {
+                comment += `❌ **Non-Compliant** - ${computeData.total_violations} violation(s)\n`;
+                if (computeData.violations) {
+                  computeData.violations.forEach(violation => {
+                    comment += `- ${violation}\n`;
+                  });
+                }
+              }
+            } catch (e) {
+              comment += `\n### 🖥️ Compute Policy Validation\n❓ Unable to parse results\n`;
+            }
+            
+            // Cost Estimate
+            comment += `\n### 💰 Cost Estimate\n`;
+            comment += `- **Preemptible e2-micro**: ~$3.50/month\n`;
+            comment += `- **Boot disk (10GB)**: ~$0.40/month\n`;
+            comment += `- **Storage bucket**: ~$0.02/month\n`;
+            comment += `- **Total**: ~$3.92/month\n\n`;
+            comment += `*Note: Costs will be lower due to preemptible interruptions and free tier usage*\n`;
+            
+            // Overall Status
+            const compliant = '${{ steps.policy-check.outputs.compliant }}' === 'true';
+            const overallStatus = compliant ? '✅ Ready for deployment' : '❌ Deployment blocked due to policy violations';
+            comment += `\n**Overall Status:** ${overallStatus}\n`;
+            
+            comment += '\n---\n*This comment was automatically generated by the cost-optimized infrastructure workflow.*';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -137,7 +265,7 @@ jobs:
               body: comment
             });
           } catch (error) {
-            console.error('Error reading OPA result:', error);
+            console.error('Error creating PR comment:', error);
           }
     
     - name: Terraform Apply (only if compliant and on main branch)
@@ -147,6 +275,60 @@ jobs:
         terraform apply -auto-approve tfplan
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Terraform Destroy (manual trigger only)
+      if: github.event.inputs.action == 'destroy'
+      run: |
+        echo "🔥 Destroying infrastructure..."
+        terraform destroy -auto-approve
+      env:
+        GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Post-Deployment Validation
+      if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.action != 'destroy'
+      run: |
+        echo "🔍 Validating deployment..."
+        
+        # Check if compute instance was created
+        INSTANCE_NAME=$(terraform output -raw instance_name 2>/dev/null || echo "")
+        if [ -n "$INSTANCE_NAME" ]; then
+          echo "✅ Compute instance '$INSTANCE_NAME' created successfully"
+          
+          # Get instance details
+          INSTANCE_ZONE=$(terraform output -raw instance_zone 2>/dev/null || echo "")
+          INSTANCE_IP=$(terraform output -raw instance_internal_ip 2>/dev/null || echo "")
+          
+          echo "📍 Zone: $INSTANCE_ZONE"
+          echo "🌐 Internal IP: $INSTANCE_IP"
+          
+          # Verify cost optimization features
+          echo "💰 Cost optimization features:"
+          terraform output -json cost_optimization_features | jq -r '
+            "  • Preemptible: " + (.preemptible | tostring) +
+            "\n  • Machine Type: " + .machine_type +
+            "\n  • Disk Type: " + .disk_type +
+            "\n  • Disk Size: " + .disk_size'
+        fi
+        
+        # Check bucket
+        BUCKET_NAME=$(terraform output -raw bucket_name 2>/dev/null || echo "")
+        if [ -n "$BUCKET_NAME" ]; then
+          echo "✅ Storage bucket '$BUCKET_NAME' created successfully"
+        fi
+
+    - name: Cost Monitoring Recommendations
+      if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.action != 'destroy'
+      run: |
+        echo "📊 Cost Monitoring Setup Recommendations:"
+        echo "1. Visit: https://console.cloud.google.com/billing/"
+        echo "2. Set up billing alerts for budget limits"
+        echo "3. Monitor using: gcloud compute instances list"
+        echo ""
+        echo "💡 Cost optimization tips:"
+        echo "- Stop instances when not in use: gcloud compute instances stop INSTANCE_NAME"
+        echo "- Use sustained use discounts for long-running workloads"
+        echo "- Monitor preemptible instance interruptions"
+        echo "- Consider committed use discounts for predictable workloads"
     
     - name: Upload Terraform Plan Artifact
       if: always()
@@ -155,5 +337,6 @@ jobs:
         name: terraform-plan-${{ github.run_number }}
         path: |
           tfplan.json
-          opa_result.json
+          storage_policy_result.json
+          compute_policy_result.json
         retention-days: 30

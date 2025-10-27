@@ -1,14 +1,30 @@
 # GCP Compliance Validation with Terraform and OPA
 
-This repository demonstrates how to implement compliance validation for Google Cloud Platform (GCP) resources using Terraform and Open Policy Agent (OPA).
+This repository demonstrates how to implement compliance validation for Google Cloud Platform (GCP) resources using Terraform and Open Policy Agent (OPA), with a focus on cost-optimized deployments.
 
 ## Overview
 
 This project implements a compliance validation pipeline that:
-1. Creates GCP resources using Terraform
+1. Creates cost-optimized GCP resources using Terraform
 2. Validates resource configurations against OPA policies
 3. Automatically blocks non-compliant deployments
-4. Uses GitHub Actions for CI/CD automation
+4. Enforces cost optimization best practices
+5. Uses GitHub Actions for CI/CD automation
+
+## Resources Deployed
+
+### 1. Google Cloud Storage Bucket
+- Configured with compliance policies
+- Lifecycle management rules
+- Cost-effective settings
+
+### 2. Cost-Optimized Compute Engine Instance
+- **Preemptible instance** for up to 80% cost savings
+- **e2-micro machine type** (eligible for Always Free tier)
+- **10GB standard persistent disk** (minimum cost)
+- **Ubuntu 20.04 LTS** (free and lightweight)
+- **No external IP** (reduces costs)
+- Optimized for minimal cost while maintaining functionality
 
 ## Architecture
 

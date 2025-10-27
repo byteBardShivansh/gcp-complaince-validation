@@ -1,7 +1,15 @@
 # Example terraform.tfvars file
 # Copy this to terraform.tfvars and update with your actual values
 
+# Basic Configuration
 project_id   = "your-actual-gcp-project-id"
 region       = "us-central1"
 bucket_name  = "your-unique-bucket-name"
 environment  = "development"
+
+# Compute Instance Configuration (Cost-Optimized)
+instance_name     = "cost-optimized-vm"
+machine_type      = "e2-micro"        # Smallest machine type - eligible for Always Free tier
+zone              = "us-central1-a"   # Choose zone with lower costs
+boot_disk_image   = "ubuntu-os-cloud/ubuntu-2004-lts"
+boot_disk_size    = 10                # Minimum disk size in GB
